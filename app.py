@@ -125,10 +125,18 @@ def receive_sensor_data():
     return jsonify({"message": "Sensor data received successfully"})
 
 # ✅ GET LATEST SENSOR READING
-@app.route("/latest-reading", methods=["GET"])
-def get_latest_reading():
-    return jsonify(latest_sensor)
+@app.route("/latest-reading")
+def latest_reading():
+    if not mongo_ok:
+        return jsonify({"error": "MongoDB not connected"}), 500
 
+    latest = db.sensor_readings.find_one(sort=[("timestamp", -1)])
+
+    if not latest:
+        return jsonify({})
+
+    latest["_id"] = str(latest["_id"])
+    return jsonify(latest)
 # ✅ RL PREDICTION
 @app.route("/predict", methods=["POST"])
 def predict():
