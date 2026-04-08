@@ -139,34 +139,69 @@ def predict():
 
     moisture = latest_sensor["moisture"]
     temperature = latest_sensor["temperature"]
-    rainfall = 1 if latest_sensor["rainfall"] > 1000 else 0
+    humidity = latest_sensor["humidity"]
+    rainfall_raw = latest_sensor["rainfall"]
+    rainfall = 1 if rainfall_raw > 500 else 0
 
     ml = get_moisture_level(moisture)
     tl = get_temp_level(temperature)
     state = encode_state(ml, tl, rainfall)
 
-    action = int(np.argmax(q_table[state]))
+    q_values = q_table[state]
+    action = int(np.argmax(q_values))
 
     action_map = {
-        0: ("No Water", 0),
-        1: ("5 Minutes", 5),
-        2: ("10 Minutes", 10)
+        0: "No Water",
+        1: "5 Min Water",
+        2: "10 Min Water"
     }
 
-    label, duration = action_map[action]
+    decision_label = action_map[action]
+
+    irrigation_on = action != 0
+
+    explanation = f"State {state} → Moisture level {ml}, Temp level {tl}, Rain flag {rainfall}. Best action selected from trained Q-table."
+
+    # Simple crop recommendation logic
+    if moisture > 40 and rainfall_raw > 1000:
+        crop = "Rice 🌾"
+        crop_reason = "High moisture and high rainfall are ideal for rice."
+    elif temperature > 30 and humidity < 50:
+        crop = "Cotton 🌿"
+        crop_reason = "Hot and moderate humidity conditions suit cotton."
+    else:
+        crop = "Maize 🌽"
+        crop_reason = "Balanced conditions suitable for maize."
 
     pump_state = {
-        "on": action != 0,
-        "action_label": label,
-        "duration_minutes": duration,
+        "on": irrigation_on,
+        "action_label": decision_label,
+        "duration_minutes": 0 if action == 0 else (5 if action == 1 else 10),
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
 
     if mongo_ok:
-        db.rl_decisions.insert_one(pump_state)
+        db.rl_decisions.insert_one({
+            "state": state,
+            "action": action,
+            "decision": decision_label,
+            "timestamp": datetime.now()
+        })
 
-    return jsonify(pump_state)
-
+    return jsonify({
+        "action": action,
+        "decision": decision_label,
+        "explanation": explanation,
+        "state": state,
+        "irrigation_on": irrigation_on,
+        "q_values": {
+            "No Water": float(q_values[0]),
+            "5 Min Water": float(q_values[1]),
+            "10 Min Water": float(q_values[2])
+        },
+        "crop": crop,
+        "crop_reason": crop_reason
+    })
 # ✅ PUMP STATE
 @app.route("/pump-state", methods=["GET"])
 def get_pump_state():
